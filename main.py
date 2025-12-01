@@ -1,397 +1,332 @@
 import tkinter as tk
-from tkinter import messagebox
 import customtkinter as ctk
-import requests
-import json
 import os
+import json
+import math
 from datetime import datetime
 from PIL import Image, ImageTk
 from collections import Counter
-import time
+from iss_fetcher import ISSDataFetcher
+from ui_components import ModernDataCard
 
-class ISSDataFetcher:
-    """Handles API requests to fetch ISS and location data."""
-
-    def __init__(self):
-        """Initialize the data fetcher."""
-        self.iss_api_url = "http://api.open-notify.org/iss-now.json"
-        self.geo_api_url = "https://api.bigdatacloud.net/data/reverse-geocode-client"
-
-    def get_iss_position(self):
-        """
-        Fetches the current ISS position from the API.
-
-        Returns:
-            dict: A dictionary with 'latitude', 'longitude', and 'timestamp'
-                  if successful, None otherwise.
-        """
-        try:
-            response = requests.get(self.iss_api_url, timeout=5)
-            response.raise_for_status()  # Raise exception for 4xx/5xx errors
-            data = response.json()
-
-            if data.get('message') == 'success':
-                latitude = float(data['iss_position']['latitude'])
-                longitude = float(data['iss_position']['longitude'])
-                timestamp_obj = datetime.fromtimestamp(data['timestamp'])
-
-                return {
-                    'latitude': latitude,
-                    'longitude': longitude,
-                    'timestamp_obj': timestamp_obj,
-                    'timestamp_str': timestamp_obj.strftime('%Y-%m-%d %H:%M:%S')
-                }
-            else:
-                print(f"API error: {data.get('reason', 'Unknown')}")
-                return None
-        except requests.RequestException as e:
-            # Handle connection errors, timeouts, etc.
-            print(f"ISS API request failed: {e}")
-            return None
-
-    def get_location_details(self, lat, lon):
-        """
-        Fetches nearest city/country using reverse geocoding.
-
-        Args:
-            lat (float): Latitude
-            lon (float): Longitude
-
-        Returns:
-            str: A formatted location string (e.g., "City, Country", "Ocean", "N/A")
-        """
-        params = {
-            'latitude': lat,
-            'longitude': lon,
-            'localityLanguage': 'en'
-        }
-        try:
-            response = requests.get(self.geo_api_url, params=params, timeout=5)
-            response.raise_for_status()
-            data = response.json()
-
-            # Format the location string
-            locality = data.get('locality')
-            country = data.get('countryName')
-
-            if locality and country:
-                return f"{locality}, {country}"
-            elif country:
-                return country
-            elif data.get('localityInfo', {}).get('informative'):
-                # Often describes oceans
-                return data['localityInfo']['informative'][-1].get('name', 'Ocean')
-            else:
-                return "Over Ocean"
-        except requests.RequestException as e:
-            print(f"Geo API request failed: {e}")
-            return "N/A"
-        except json.JSONDecodeError:
-            print("Failed to decode Geo API response.")
-            return "N/A"
-
-class SpaceTrackerApp:
-    """Main application class for the modern ISS Space Tracker GUI."""
+class SpaceTrackerApp2025:
+    """Futuristic 2025 ISS Space Tracker with CustomTkinter."""
 
     def __init__(self, root):
-        """
-        Initialize the main application.
-
-        Args:
-            root (ctk.CTk): The root CustomTkinter window.
-        """
+        """Initialize the main application."""
         self.root = root
-        self.root.title("Modern Real-Time ISS Tracker")
-        self.root.geometry("800x720")  # Increased height for better spacing
+        self.root.title("ISS Live Tracker 2025")
+        self.root.resizable(True, True)
         self.root.resizable(False, False)
-
-        # Set default appearance
+        self.max_trail_points = 1200
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
 
-        # --- Fonts ---
-        self.font_large = ctk.CTkFont(family="Segoe UI", size=20, weight="bold")
-        self.font_normal = ctk.CTkFont(family="Segoe UI", size=14)
-        self.font_small_italic = ctk.CTkFont(family="Segoe UI", size=12, slant="italic")
-        self.font_status = ctk.CTkFont(family="Segoe UI", size=12)
-        self.font_button = ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
-        self.font_mono = ctk.CTkFont(family="Courier New", size=12)
+        self.colors = {
+            'bg_primary': "#040D21",
+            'bg_secondary': "#0A0F2D",
+            'bg_card': "#10172A",
+            'accent_cyan': "#00E5FF",
+            'accent_purple': "#7D5CFF",
+            'accent_blue': "#2DCCFF",
+            'text_primary': "#FFFFFF",
+            'text_secondary': "#9CA3AF",
+            'border': "#3d4d6d",
+            'success': "#10B981",
+            'error': "#EF4444"
+        }
 
-        # --- Data & State ---
+        self.root.configure(fg_color=self.colors['bg_primary'])
+
         self.data_fetcher = ISSDataFetcher()
         self.log_file = 'iss_tracking_log.json'
-
-        # Canvas dimensions
         self.canvas_width = 760
         self.canvas_height = 380
-
-        # State Variables
         self.auto_update_enabled = False
         self.auto_update_job = None
         self.last_position = None
         self.is_night_mode = False
         self.iss_trail_coords = []
-
-        # Asset References
-        self.map_image_day = None
+        self.pulse_angle = 0
         self.map_photo_day = None
-        self.map_image_night = None
         self.map_photo_night = None
-        self.iss_icon = None
         self.iss_photo = None
-
-        # Canvas Item IDs
-        self.map_image_id = None
-        self.iss_item_id = None
-
-        # StringVars for Labels
-        self.lat_var = tk.StringVar(value="Latitude: --")
-        self.lon_var = tk.StringVar(value="Longitude: --")
-        self.time_var = tk.StringVar(value="Timestamp: --")
-        self.location_var = tk.StringVar(value="Location: --")
-        self.status_var = tk.StringVar(value="Status: Ready. Press 'Enable Auto-Track' to begin.")
-        self.utc_time_var = tk.StringVar(value="UTC: --:--:--")
-
-        # --- Load assets and build UI ---
         self._load_assets()
         self._create_widgets()
-
-        # Initial actions
         self.update_location(is_manual=True)
-        self._start_utc_clock()
+        self._animate_pulse()
 
     def _load_assets(self):
-        """Load external images (maps, icons) safely."""
+        """Load external images safely."""
         try:
             img_day = Image.open("world_map.png").resize((self.canvas_width, self.canvas_height))
             self.map_photo_day = ImageTk.PhotoImage(img_day)
+        except Exception as e:
+            print(f"Day map not found: {e}")
 
+        try:
             img_night = Image.open("world_map_night.png").resize((self.canvas_width, self.canvas_height))
             self.map_photo_night = ImageTk.PhotoImage(img_night)
         except Exception as e:
-            print(f"Map image not found or failed to load: {e}. Using fallback color.")
-            if not self.map_photo_day:
-                print("Critical: Default 'world_map.png' is missing.")
+            print(f"Night map not found: {e}")
 
         try:
             img_iss = Image.open("iss_icon.png").resize((32, 32))
             self.iss_photo = ImageTk.PhotoImage(img_iss)
         except Exception as e:
-            print(f"ISS icon not found: {e}. Using fallback dot.")
-            self.iss_photo = None
+            print(f"ISS icon not found: {e}")
 
     def _create_widgets(self):
-        """Create and layout all GUI widgets using a grid system."""
+        """Create the modern UI."""
+        main_container = ctk.CTkFrame(self.root, fg_color="transparent")
+        main_container.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # Configure root grid
-        self.root.grid_rowconfigure(2, weight=1)  # Map row expands
-        self.root.grid_columnconfigure(0, weight=1)
-
-        # --- 0. Top Navigation Bar ---
-        nav_frame = ctk.CTkFrame(self.root, corner_radius=0, height=40)
-        nav_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
-        nav_frame.grid_columnconfigure(3, weight=1)  # Push theme toggle right
-
-        ctk.CTkLabel(nav_frame, text="Real-Time ISS Tracker", font=self.font_large).grid(row=0, column=0, padx=20,
-                                                                                         pady=10)
-
-        ctk.CTkButton(nav_frame, text="Exit", command=self.root.quit, width=60, font=self.font_button).grid(row=0,
-                                                                                                            column=1,
-                                                                                                            padx=5,
-                                                                                                            pady=10)
-        ctk.CTkButton(nav_frame, text="About", command=self._show_about, width=60, font=self.font_button).grid(row=0,
-                                                                                                               column=2,
-                                                                                                               padx=5,
-                                                                                                               pady=10)
-
-        # View Options Menu
-        self.view_menu = ctk.CTkOptionMenu(
-            nav_frame,
-            values=["View Options", "Toggle Day/Night", "Clear ISS Trail"],
-            command=self._handle_view_menu,
-            font=self.font_button,
-            width=120
+        # === HEADER ===
+        header = ctk.CTkFrame(
+            main_container,
+            fg_color=self.colors['bg_card'],
+            corner_radius=24,
+            border_width=1,
+            border_color=self.colors['border']
         )
-        self.view_menu.grid(row=0, column=3, padx=10, pady=10)
+        header.pack(fill="x", pady=(0, 16))
 
-        # Light/Dark Mode Toggle
-        self.theme_switch = ctk.CTkSwitch(
-            nav_frame,
-            text="Light Mode",
-            command=self._toggle_theme,
-            font=self.font_normal,
-            onvalue="Light",
-            offvalue="Dark"
+        header_content = ctk.CTkFrame(header, fg_color="transparent")
+        header_content.pack(fill="x", padx=24, pady=20)
+
+        # Title
+        title_frame = ctk.CTkFrame(header_content, fg_color="transparent")
+        title_frame.pack(side="left")
+
+        ctk.CTkLabel(
+            title_frame,
+            text="ISS LIVE TRACKER",
+            font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"),
+            text_color=self.colors['accent_cyan']
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            title_frame,
+            text="Real-time orbital monitoring system",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=self.colors['text_secondary']
+        ).pack(anchor="w")
+
+        # Controls
+        controls_frame = ctk.CTkFrame(header_content, fg_color="transparent")
+        controls_frame.pack(side="right")
+
+        self.status_indicator = ctk.CTkLabel(
+            controls_frame, text="●", font=ctk.CTkFont(size=20),
+            text_color=self.colors['text_secondary']
         )
-        self.theme_switch.grid(row=0, column=4, padx=20, pady=10, sticky="e")
+        self.status_indicator.pack(side="left", padx=(0, 8))
 
-        # --- 1. Info "Card" ---
-        info_frame = ctk.CTkFrame(self.root, corner_radius=10)
-        info_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(10, 5))
-        info_frame.grid_columnconfigure(0, weight=1)
-        info_frame.grid_columnconfigure(1, weight=1)
+        self.last_update_label = ctk.CTkLabel(
+            controls_frame, text="Updated: --",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self.colors['text_secondary']
+        )
+        self.last_update_label.pack(side="left", padx=(0, 16))
 
+        self.track_button = ctk.CTkButton(
+            controls_frame, text="START TRACKING",
+            command=self._toggle_tracking, width=160, height=40,
+            corner_radius=12, font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=self.colors['accent_cyan'], hover_color=self.colors['accent_blue']
+        )
+        self.track_button.pack(side="left")
+
+        content_grid = ctk.CTkFrame(main_container, fg_color="transparent")
+        content_grid.pack(fill="both", expand=True)
+        left_panel = ctk.CTkFrame(
+            content_grid, fg_color=self.colors['bg_card'],
+            corner_radius=24, border_width=1, border_color=self.colors['border']
+        )
+        left_panel.pack(side="left", fill="both", expand=True, padx=(0, 16))
+
+        earth_header = ctk.CTkFrame(left_panel, fg_color="transparent")
+        earth_header.pack(fill="x", padx=20, pady=(16, 12))
         ctk.CTkLabel(
-            info_frame,
-            textvariable=self.time_var,
-            font=self.font_large,
-        ).grid(row=0, column=0, columnspan=2, pady=(10, 5))
+            earth_header, text="EARTH PROJECTION",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color=self.colors['text_primary']
+        ).pack(side="left")
 
-        ctk.CTkLabel(
-            info_frame,
-            textvariable=self.lat_var,
-            font=self.font_normal,
-        ).grid(row=1, column=0, pady=5)
+        view_controls = ctk.CTkFrame(earth_header, fg_color="transparent")
+        view_controls.pack(side="right")
+        self.mode_button = ctk.CTkButton(
+            view_controls, text="🌙 Night Mode",
+            command=self._toggle_day_night, width=120, height=32, corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=("#1a2332", "#0f1419"), hover_color=("#2a3342", "#1f2429"),
+            border_width=1, border_color=self.colors['border']
+        )
 
-        ctk.CTkLabel(
-            info_frame,
-            textvariable=self.lon_var,
-            font=self.font_normal,
-        ).grid(row=1, column=1, pady=5)
+        self.mode_button.pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            view_controls, text="Clear Trail", command=self._clear_trail,
+            width=100, height=32, corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=("#1a2332", "#0f1419"), hover_color=("#2a3342", "#1f2429"),
+            border_width=1, border_color=self.colors['border']
+        ).pack(side="left")
 
-        ctk.CTkLabel(
-            info_frame,
-            textvariable=self.location_var,
-            font=self.font_small_italic,
-        ).grid(row=2, column=0, columnspan=2, pady=(5, 10))
-
-        # --- 2. Map "Card" ---
-        canvas_frame = ctk.CTkFrame(self.root, corner_radius=10)
-        canvas_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
-
+        canvas_container = ctk.CTkFrame(left_panel, fg_color="transparent")
+        canvas_container.pack(padx=20, pady=(0, 20))
         self.canvas = tk.Canvas(
-            canvas_frame,
-            width=self.canvas_width,
-            height=self.canvas_height,
-            bg='#2B2B2B',
-            highlightthickness=0
+            canvas_container, width=self.canvas_width, height=self.canvas_height,
+            bg='#0A0F2D', highlightthickness=0, relief='flat'
         )
-        self.canvas.pack()
 
+        self.canvas.pack()
         if self.map_photo_day:
             self.map_image_id = self.canvas.create_image(
-                0, 0,
-                anchor=tk.NW,
-                image=self.map_photo_day
+                0, 0, anchor=tk.NW, image=self.map_photo_day
             )
 
-        # Create ISS item
-        if self.iss_photo:
-            self.iss_item_id = self.canvas.create_image(
-                self.canvas_width / 2, self.canvas_height / 2,
-                image=self.iss_photo
-            )
-        else:
-            self.iss_item_id = self.canvas.create_oval(
-                self.canvas_width / 2 - 5, self.canvas_height / 2 - 5,
-                self.canvas_width / 2 + 5, self.canvas_height / 2 + 5,
-                fill='#e74c3c', outline='white', width=2
-            )
-
-        # --- 3. Controls "Card" ---
-        button_frame = ctk.CTkFrame(self.root, corner_radius=10)
-        button_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=5)
-        button_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
-
-        self.update_button = ctk.CTkButton(
-            button_frame,
-            text="Manual Update",
-            command=lambda: self.update_location(is_manual=True),
-            font=self.font_button
+        coord_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
+        coord_frame.pack(fill="x", padx=20, pady=(0, 16))
+        self.lat_display = ctk.CTkLabel(
+            coord_frame, text="LAT: --",
+            font=ctk.CTkFont(family="Courier New", size=11, weight="bold"),
+            text_color=self.colors['accent_cyan'], fg_color=("#1a2332", "#0f1419"),
+            corner_radius=8, padx=12, pady=6
         )
-        self.update_button.grid(row=0, column=0, padx=5, pady=10)
+        self.lat_display.pack(side="left")
 
-        self.toggle_button = ctk.CTkButton(
-            button_frame,
-            text="Enable Auto-Track",
-            command=self._toggle_auto_update,
-            font=self.font_button,
-            fg_color="#2ecc71",  # Green
-            hover_color="#27ae60"  # Darker Green
+        self.lon_display = ctk.CTkLabel(
+            coord_frame, text="LON: --",
+            font=ctk.CTkFont(family="Courier New", size=11, weight="bold"),
+            text_color=self.colors['accent_purple'], fg_color=("#1a2332", "#0f1419"),
+            corner_radius=8, padx=12, pady=6
         )
-        self.toggle_button.grid(row=0, column=1, padx=5, pady=10)
 
-        self.history_button = ctk.CTkButton(
-            button_frame,
-            text="Show History",
-            command=self.show_history,
-            font=self.font_button
+        self.lon_display.pack(side="right")
+        right_panel = ctk.CTkFrame(content_grid, fg_color="transparent")
+        right_panel.pack(side="right", fill="y", anchor="n")
+
+        coord_row = ctk.CTkFrame(right_panel, fg_color="transparent")
+        coord_row.pack(fill="x", pady=(0, 10))
+
+        self.card_latitude = ModernDataCard(
+            coord_row, label="Latitude", unit="°", color=self.colors['accent_cyan'], width=135
         )
-        self.history_button.grid(row=0, column=2, padx=5, pady=10)
+        self.card_latitude.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
-        self.summary_button = ctk.CTkButton(
-            button_frame,
-            text="Show Summary",
-            command=self.show_summary,
-            font=self.font_button
+        self.card_longitude = ModernDataCard(
+            coord_row, label="Longitude", unit="°", color=self.colors['accent_purple'], width=135
         )
-        self.summary_button.grid(row=0, column=3, padx=5, pady=10)
+        self.card_longitude.pack(side="left", fill="x", expand=True)
 
-        # --- 4. Status Bar ---
-        status_frame = ctk.CTkFrame(self.root, corner_radius=0, height=30)
-        status_frame.grid(row=4, column=0, sticky="ew", padx=0, pady=0)
-        status_frame.grid_columnconfigure(0, weight=1)
+        telemetry_row = ctk.CTkFrame(right_panel, fg_color="transparent")
+        telemetry_row.pack(fill="x", pady=(0, 10))
 
-        self.status_label = ctk.CTkLabel(
-            status_frame,
-            textvariable=self.status_var,
-            font=self.font_status,
-            anchor=tk.W
+        self.card_altitude = ModernDataCard(
+            telemetry_row, label="Altitude", value="408.0", unit="km", color=self.colors['accent_blue'], width=135
         )
-        self.status_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        self.card_altitude.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
-        self.utc_label = ctk.CTkLabel(
-            status_frame,
-            textvariable=self.utc_time_var,
-            font=self.font_status,
-            anchor=tk.E
+        self.card_velocity = ModernDataCard(
+            telemetry_row, label="Velocity", value="27.6", unit="km/s", color=self.colors['accent_cyan'], width=135
         )
-        self.utc_label.grid(row=0, column=1, padx=10, pady=5, sticky="e")
+        self.card_velocity.pack(side="left", fill="x", expand=True)
 
-    def _start_utc_clock(self):
-        """Updates the UTC clock label every second."""
-        utc_now = datetime.utcnow().strftime('UTC: %H:%M:%S')
-        self.utc_time_var.set(utc_now)
-        self.root.after(1000, self._start_utc_clock)  # Reschedule
+        self.card_location = ModernDataCard(
+            right_panel, label="Location", unit="", color=self.colors['text_primary'], width=280
+        )
+        self.card_location.pack(fill="x", pady=(0, 10))
 
-    def _toggle_auto_update(self):
-        """Starts or stops the automatic update loop."""
+        status_panel = ctk.CTkFrame(
+            right_panel,
+            fg_color=("#1a2332", "#0f1419"),
+            corner_radius=16,
+            border_width=1,
+            border_color=self.colors['border'],
+            width=280
+        )
+        status_panel.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(
+            status_panel,
+            text="MISSION STATUS",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color=self.colors['text_secondary']
+        ).pack(pady=(12, 5), padx=12, anchor="w")
+
+        separator = ctk.CTkFrame(
+            status_panel,
+            height=1,
+            fg_color=self.colors['border']
+        )
+        separator.pack(fill="x", padx=12, pady=(0, 8))
+
+        self.tracking_status = self._create_status_row(status_panel, "Tracking", "STANDBY")
+        self.trail_status = self._create_status_row(status_panel, "Trail Points", "0")
+        self.mode_status = self._create_status_row(status_panel, "Display Mode", "DAY")
+        # ctk.CTkFrame(status_panel, height=12, fg_color="transparent").pack()
+
+        ctk.CTkButton(
+            right_panel, text="MANUAL UPDATE", command=lambda: self.update_location(is_manual=True),
+            height=40, corner_radius=10, font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=self.colors['accent_purple'], hover_color="#6B4DD9"
+        ).pack(fill="x", pady=(0, 10))
+
+        # Action Buttons
+        action_frame1 = ctk.CTkFrame(right_panel, fg_color="transparent")
+        action_frame1.pack(fill="x", pady=(0, 0))
+
+        ctk.CTkButton(
+            action_frame1, text="Show History", command=self.show_history,
+            height=36, corner_radius=10, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=("#1a2332", "#0f1419"), hover_color=("#2a3342", "#1f2429"),
+            border_width=1, border_color=self.colors['border']
+        ).pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        ctk.CTkButton(
+            action_frame1, text="Show Summary", command=self.show_summary,
+            height=36, corner_radius=10, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=("#1a2332", "#0f1419"), hover_color=("#2a3342", "#1f2429"),
+            border_width=1, border_color=self.colors['border']
+        ).pack(side="left", fill="x", expand=True)
+
+    def _create_status_row(self, parent, label, value):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=12, pady=4)
+        ctk.CTkLabel(
+            row, text=label, font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self.colors['text_secondary']
+        ).pack(side="left")
+        value_label = ctk.CTkLabel(
+            row, text=value, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=self.colors['accent_cyan']
+        )
+        value_label.pack(side="right")
+        return value_label
+
+    def _toggle_tracking(self):
         self.auto_update_enabled = not self.auto_update_enabled
-
         if self.auto_update_enabled:
-            self.toggle_button.configure(
-                text="Disable Auto-Track",
-                fg_color="#e74c3c",  # Red
-                hover_color="#c0392b"  # Darker Red
+            self.track_button.configure(
+                text="STOP TRACKING", fg_color=self.colors['error'], hover_color="#DC2626"
             )
-            self.update_button.configure(state="disabled")
-            self.update_location(is_manual=False)  # Start the loop
+            self.status_indicator.configure(text_color=self.colors['success'])
+            self.tracking_status.configure(text="ACTIVE", text_color=self.colors['success'])
+            self.update_location(is_manual=False)
         else:
-            self.toggle_button.configure(
-                text="Enable Auto-Track",
-                fg_color="#2ecc71",  # Green
-                hover_color="#27ae60"  # Darker Green
+            self.track_button.configure(
+                text="START TRACKING", fg_color=self.colors['accent_cyan'], hover_color=self.colors['accent_blue']
             )
-            self.update_button.configure(state="normal")
-
+            self.status_indicator.configure(text_color=self.colors['text_secondary'])
+            self.tracking_status.configure(text="STANDBY", text_color=self.colors['text_secondary'])
             if self.auto_update_job:
                 self.root.after_cancel(self.auto_update_job)
                 self.auto_update_job = None
 
-            self.status_var.set("Status: Auto-Tracking OFF.")
-            self.status_label.configure(text_color="gray")
-
     def update_location(self, is_manual=False):
-        """
-        Fetches new ISS data, updates GUI, and saves to log.
-        """
+        """Fetch and update ISS position."""
         if not is_manual and not self.auto_update_enabled:
             return
-
-        status_text = "Manual update..." if is_manual else "Auto-updating..."
-        self.status_var.set(f"Status: {status_text}")
-        self.status_label.configure(text_color="yellow")  # Processing color
-        self.root.update_idletasks()
 
         data = self.data_fetcher.get_iss_position()
 
@@ -400,192 +335,185 @@ class SpaceTrackerApp:
                 data['latitude'], data['longitude']
             )
 
-            # Update GUI labels
-            self.lat_var.set(f"Latitude: {data['latitude']:.4f}")
-            self.lon_var.set(f"Longitude: {data['longitude']:.4f}")
-            self.time_var.set(f"Timestamp: {data['timestamp_str']}")
-            self.location_var.set(f"Location: {location_str}")
-
+            self.card_latitude.update_value(f"{data['latitude']:.4f}")
+            self.card_longitude.update_value(f"{data['longitude']:.4f}")
+            self.card_altitude.update_value(f"{data['altitude']:.1f}")
+            velocity_kms = data['velocity'] / 3600
+            self.card_velocity.update_value(f"{velocity_kms:.2f}")
+            self.card_location.update_value(location_str[:25])
+            self.lat_display.configure(text=f"LAT: {data['latitude']:.4f}°")
+            self.lon_display.configure(text=f"LON: {data['longitude']:.4f}°")
+            self.last_update_label.configure(text=f"Updated: {datetime.now().strftime('%H:%M:%S')}")
             self._update_canvas_position(data['latitude'], data['longitude'])
+            self.trail_status.configure(text=str(len(self.iss_trail_coords)))
 
-            status_text = "Auto-Tracking ON" if self.auto_update_enabled else "Auto-Tracking OFF"
-            self.status_var.set(f"Status: {status_text} | Last update: {datetime.now().strftime('%H:%M:%S')}")
-            self.status_label.configure(text_color="#66B2FF")  # Success color
-
-            # Save data
             data['location'] = location_str
             data.pop('timestamp_obj', None)
             self._save_log(data)
             self.last_position = data
-        else:
-            self.status_var.set("Error: Failed to fetch ISS data. Check connection.")
-            self.status_label.configure(text_color="#FF6B6B")  # Error color
 
         if self.auto_update_enabled:
             self.auto_update_job = self.root.after(
-                10000,  # 10 seconds
+                5000,
                 lambda: self.update_location(is_manual=False)
             )
 
     def _update_canvas_position(self, lat, lon):
-        """
-        Converts lat/lon to canvas coords, moves the ISS, and draws the trail.
-        """
+        """Update ISS position on canvas with trail, handling map wrapping."""
         x = (lon + 180) * (self.canvas_width / 360)
         y = (90 - lat) * (self.canvas_height / 180)
 
         self.iss_trail_coords.append((x, y))
-        if len(self.iss_trail_coords) > 100:
+        if len(self.iss_trail_coords) > self.max_trail_points:
             self.iss_trail_coords.pop(0)
 
-        self.canvas.delete("trail")
-        if len(self.iss_trail_coords) > 1:
+        self.canvas.delete("grid")
+        for i in range(13):
             self.canvas.create_line(
-                self.iss_trail_coords,
-                fill='yellow',
-                width=2,
-                tags="trail"
+                (self.canvas_width / 12) * i, 0,
+                (self.canvas_width / 12) * i, self.canvas_height,
+                fill='#7D5CFF', width=1, stipple='gray25', tags="grid"
+            )
+        for i in range(7):
+            self.canvas.create_line(
+                0, (self.canvas_height / 6) * i,
+                self.canvas_width, (self.canvas_height / 6) * i,
+                fill='#7D5CFF', width=1, stipple='gray25', tags="grid"
             )
 
-        if self.iss_photo:
-            self.canvas.coords(self.iss_item_id, x, y)
-        else:
-            self.canvas.coords(self.iss_item_id, x - 5, y - 5, x + 5, y + 5)
+        self.canvas.delete("trail")
 
-        self.canvas.tag_raise(self.iss_item_id)
+        if len(self.iss_trail_coords) > 1:
+            current_segment = [self.iss_trail_coords[0]]
+
+            for i in range(1, len(self.iss_trail_coords)):
+                x1, y1 = self.iss_trail_coords[i - 1]
+                x2, y2 = self.iss_trail_coords[i]
+                if abs(x2 - x1) > self.canvas_width / 2:
+                    # Draw the previous segment
+                    if len(current_segment) > 1:
+                        self.canvas.create_line(
+                            current_segment,
+                            fill='#00E5FF',
+                            width=2,
+                            smooth=True,
+                            tags="trail"
+                        )
+
+                    current_segment = [(x2, y2)]
+                else:
+                    current_segment.append((x2, y2))
+
+            if len(current_segment) > 1:
+                self.canvas.create_line(
+                    current_segment,
+                    fill='#00E5FF',
+                    width=2,
+                    smooth=True,
+                    tags="trail"
+                )
+
+        self.canvas.delete("iss")
+        self.canvas.create_oval(
+            x - 20, y - 20, x + 20, y + 20,
+            fill='', outline='#00E5FF', width=2,
+            tags="iss"
+        )
+        self.canvas.create_oval(
+            x - 6, y - 6, x + 6, y + 6,
+            fill='#00E5FF', outline='white', width=2,
+            tags="iss"
+        )
+
+    def _animate_pulse(self):
+        self.pulse_angle = (self.pulse_angle + 10) % 360
+        if self.auto_update_enabled:
+            alpha = int(128 + 127 * math.sin(math.radians(self.pulse_angle)))
+            color = f"#{alpha:02x}FF{alpha:02x}"
+            self.status_indicator.configure(text_color=color)
+        self.root.after(50, self._animate_pulse)
+
+    def _toggle_day_night(self):
+        if not self.map_photo_night: return
+        self.is_night_mode = not self.is_night_mode
+        if self.is_night_mode:
+            self.canvas.itemconfig(self.map_image_id, image=self.map_photo_night)
+            self.mode_button.configure(text="☀️ Day Mode")
+            self.mode_status.configure(text="NIGHT")
+        else:
+            self.canvas.itemconfig(self.map_image_id, image=self.map_photo_day)
+            self.mode_button.configure(text="🌙 Night Mode")
+            self.mode_status.configure(text="DAY")
 
     def _clear_trail(self):
-        """Clears the ISS trail from the canvas."""
         self.iss_trail_coords = []
         self.canvas.delete("trail")
-        self.status_var.set("Status: ISS trail cleared.")
+        self.trail_status.configure(text="0")
 
     def _load_log(self):
-        """Loads tracking history from the JSON log file."""
-        if not os.path.exists(self.log_file):
-            return []
+        if not os.path.exists(self.log_file): return []
         try:
             with open(self.log_file, 'r') as f:
                 logs = json.load(f)
                 return logs if isinstance(logs, list) else []
         except Exception as e:
-            print(f"Error loading log: {e}")
-            return []
+            print(f"Error loading log: {e}"); return []
 
     def _save_log(self, data_entry):
-        """Appends a new data entry to the JSON log file."""
+        """Append data entry to JSON log file."""
         logs = self._load_log()
         logs.append(data_entry)
 
         try:
-            with open(self.log_file, 'w') as f:
-                json.dump(logs, f, indent=4)
+            with open(self.log_file, 'w', encoding='utf-8') as f:
+                json.dump(logs, f, indent=4, ensure_ascii=False)
         except IOError as e:
             print(f"Failed to write to log file: {e}")
 
-    def _show_toplevel_window(self, title):
-        """Helper to create a standardized CTkToplevel window with a CTkTextbox."""
-        win = ctk.CTkToplevel(self.root)
-        win.title(title)
-        win.geometry("500x400")
-        win.transient(self.root)
-        win.grab_set()
-
-        text_widget = ctk.CTkTextbox(
-            win,
-            font=self.font_mono,
-            wrap=tk.WORD,
-            activate_scrollbars=True
-        )
-        text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        return text_widget
-
     def show_history(self):
-        """Displays the tracking history in a new Toplevel window."""
-        text_widget = self._show_toplevel_window("ISS Track History")
+        win = ctk.CTkToplevel(self.root)
+        win.title("ISS Track History")
+        win.geometry("600x500")
+        win.configure(fg_color=self.colors['bg_primary'])
+        text_widget = ctk.CTkTextbox(
+            win, font=ctk.CTkFont(family="Courier New", size=11), wrap="word",
+            fg_color=self.colors['bg_card'], border_width=1, border_color=self.colors['border']
+        )
+        text_widget.pack(fill="both", expand=True, padx=20, pady=20)
         logs = self._load_log()
-
-        if logs:
-            history_data = json.dumps(logs, indent=4)
-            text_widget.insert("0.0", history_data)
-        else:
-            text_widget.insert("0.0", "No tracking history found.")
-
+        if logs: text_widget.insert("0.0", json.dumps(logs, indent=4))
+        else: text_widget.insert("0.0", "No tracking history found.")
         text_widget.configure(state="disabled")
 
     def show_summary(self):
-        """Analyzes log data and displays a summary."""
-        text_widget = self._show_toplevel_window("Tracking Summary")
+        win = ctk.CTkToplevel(self.root)
+        win.title("Tracking Summary")
+        win.geometry("600x500")
+        win.configure(fg_color=self.colors['bg_primary'])
+        text_widget = ctk.CTkTextbox(
+            win, font=ctk.CTkFont(family="Courier New", size=11), wrap="word",
+            fg_color=self.colors['bg_card'], border_width=1, border_color=self.colors['border']
+        )
+        text_widget.pack(fill="both", expand=True, padx=20, pady=20)
         logs = self._load_log()
-
         if not logs:
             text_widget.insert("0.0", "No tracking data to summarize.")
             text_widget.configure(state="disabled")
             return
-
         total_entries = len(logs)
         locations = [entry.get('location', 'N/A') for entry in logs if entry.get('location')]
-
-        summary = f"--- ISS Tracking Summary ---\n\n"
-        summary += f"Total log entries: {total_entries}\n\n"
-
+        summary = f"=== ISS TRACKING SUMMARY ===\n\nTotal log entries: {total_entries}\n\n"
         if locations:
             unique_locations = set(locations)
-            summary += f"Unique locations tracked: {len(unique_locations)}\n\n"
-            summary += "Most Frequent Locations:\n"
-            summary += "--------------------------\n"
+            summary += f"Unique locations: {len(unique_locations)}\n\nMost Frequent Locations:\n" + ("-" * 50) + "\n"
             location_counts = Counter(locations)
             for location, count in location_counts.most_common(10):
-                summary += f"{location:<30} | {count} hits\n"
-        else:
-            summary += "No location data found in logs.\n"
-
+                summary += f"{location:<35} | {count:>3} hits\n"
+        else: summary += "No location data found in logs.\n"
         text_widget.insert("0.0", summary)
         text_widget.configure(state="disabled")
 
-    def _show_about(self):
-        """Displays the 'About' message box."""
-        messagebox.showinfo(
-            "About Modern ISS Tracker",
-            "Version: 3.0 (CustomTkinter)\n\n"
-            "This application tracks the International Space Station in real-time "
-            "using data from Open Notify and BigDataCloud APIs.\n\n"
-            "UI rebuilt with CustomTkinter."
-        )
-
-    def _toggle_day_night(self):
-        """Toggles the map between day and night images."""
-        if not self.map_image_id or not self.map_photo_night:
-            self.status_var.set("Error: Night map 'world_map_night.png' not found.")
-            self.status_label.configure(text_color="#FF6B6B")  # Error color
-            return
-
-        self.is_night_mode = not self.is_night_mode
-
-        if self.is_night_mode:
-            self.canvas.itemconfig(self.map_image_id, image=self.map_photo_night)
-            self.status_var.set("Status: Night mode enabled.")
-        else:
-            self.canvas.itemconfig(self.map_image_id, image=self.map_photo_day)
-            self.status_var.set("Status: Day mode enabled.")
-        self.status_label.configure(text_color="gray")
-
-    def _handle_view_menu(self, choice):
-        """Handles the 'View Options' dropdown menu."""
-        if choice == "Toggle Day/Night":
-            self._toggle_day_night()
-        elif choice == "Clear ISS Trail":
-            self._clear_trail()
-        self.root.after(100, lambda: self.view_menu.set("View Options"))
-
-    def _toggle_theme(self):
-        """Toggles the application's appearance mode."""
-        new_mode = self.theme_switch.get()  # "Light" or "Dark"
-        ctk.set_appearance_mode(new_mode)
-        self.theme_switch.configure(text="Dark Mode" if new_mode == "Light" else "Light Mode")
-
-
 if __name__ == "__main__":
     root = ctk.CTk()
-    app = SpaceTrackerApp(root)
+    app = SpaceTrackerApp2025(root)
     root.mainloop()

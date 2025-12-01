@@ -1,0 +1,170 @@
+[
+    {
+        "latitude": 14.826643470003,
+        "longitude": 29.84554734032,
+        "altitude": 416.8531903254,
+        "velocity": 27593.123231702,
+        "timestamp_str": "2025-12-02 01:37:02",
+        "location": "North Kordofan State, Sudan"
+    },
+    {
+        "latitude": 13.677873150628,
+        "longitude": 30.730811277942,
+        "altitude": 416.79308853035,
+        "velocity": 27592.915528879,
+        "timestamp_str": "2025-12-02 01:37:25",
+        "location": "North Kordofan State, Sudan"
+    },
+    {
+        "latitude": 13.277359182904,
+        "longitude": 31.036462843893,
+        "altitude": 416.7756853466,
+        "velocity": 27592.836591648,
+        "timestamp_str": "2025-12-02 01:37:33",
+        "location": "North Kordofan State, Sudan"
+    },
+    {
+        "latitude": 12.876385313927,
+        "longitude": 31.341005254969,
+        "altitude": 416.76011513076,
+        "velocity": 27592.75417743,
+        "timestamp_str": "2025-12-02 01:37:41",
+        "location": "Umm Ruwaba, Sudan"
+    },
+    {
+        "latitude": 12.525168138699,
+        "longitude": 31.606599146797,
+        "altitude": 416.74800658316,
+        "velocity": 27592.679202691,
+        "timestamp_str": "2025-12-02 01:37:48",
+        "location": "South Kordofan, Sudan"
+    },
+    {
+        "latitude": 12.173621528535,
+        "longitude": 31.871396509418,
+        "altitude": 416.73732259015,
+        "velocity": 27592.60154811,
+        "timestamp_str": "2025-12-02 01:37:55",
+        "location": "South Kordofan, Sudan"
+    },
+    {
+        "latitude": 11.821755923365,
+        "longitude": 32.135421661551,
+        "altitude": 416.72807254394,
+        "velocity": 27592.521206169,
+        "timestamp_str": "2025-12-02 01:38:02",
+        "location": "South Kordofan, Sudan"
+    },
+    {
+        "latitude": 11.469581676955,
+        "longitude": 32.398698764078,
+        "altitude": 416.72026552026,
+        "velocity": 27592.43816984,
+        "timestamp_str": "2025-12-02 01:38:09",
+        "location": "Upper Nile, South Sudan"
+    },
+    {
+        "latitude": 11.117109059807,
+        "longitude": 32.661251824605,
+        "altitude": 416.71391027555,
+        "velocity": 27592.352432595,
+        "timestamp_str": "2025-12-02 01:38:16",
+        "location": "Upper Nile, South Sudan"
+    },
+    {
+        "latitude": 10.764348261997,
+        "longitude": 32.923104702059,
+        "altitude": 416.70901524424,
+        "velocity": 27592.263988402,
+        "timestamp_str": "2025-12-02 01:38:23",
+        "location": "Upper Nile, South Sudan"
+    },
+    {
+        "latitude": 10.360853449069,
+        "longitude": 33.221537967247,
+        "altitude": 416.70521932953,
+        "velocity": 27592.159587705,
+        "timestamp_str": "2025-12-02 01:38:31",
+        "location": "Upper Nile, South Sudan"
+    },
+    {
+        "latitude": 10.007509077864,
+        "longitude": 33.481970130292,
+        "altitude": 416.70348021466,
+        "velocity": 27592.065324952,
+        "timestamp_str": "2025-12-02 01:38:38",
+        "location": "Upper Nile, South Sudan"
+    },
+    {
+        "latitude": 9.6539080596573,
+        "longitude": 33.741776178787,
+        "altitude": 416.70322569663,
+        "velocity": 27591.968339588,
+        "timestamp_str": "2025-12-02 01:38:45",
+        "location": "Upper Nile, South Sudan"
+    },
+    {
+        "latitude": 9.3000602810093,
+        "longitude": 34.000979404672,
+        "altitude": 416.70446284903,
+        "velocity": 27591.868627688,
+        "timestamp_str": "2025-12-02 01:38:52",
+        "location": "Upper Nile, South Sudan"
+    },
+    {
+        "latitude": 8.9459755622038,
+        "longitude": 34.259602974849,
+        "altitude": 416.70719841094,
+        "velocity": 27591.766185839,
+        "timestamp_str": "2025-12-02 01:38:59",
+        "location": "Oromia Region, Ethiopia"
+    },
+    {
+        "latitude": 8.5916636599053,
+        "longitude": 34.517669935801,
+        "altitude": 416.71143878469,
+        "velocity": 27591.661011147,
+        "timestamp_str": "2025-12-02 01:39:06",
+        "location": "Oromia Region, Ethiopia"
+    },
+    {
+        "latitude": 8.2371342697904,
+        "longitude": 34.775203218183,
+        "altitude": 416.71719003381,
+        "velocity": 27591.553101237,
+        "timestamp_str": "2025-12-02 01:39:13",
+        "location": "Gambela Region, Ethiopia"
+    },
+    {
+        "latitude": 7.7810072801793,
+        "longitude": 35.105569547833,
+        "altitude": 416.72681371511,
+        "velocity": 27591.410338094,
+        "timestamp_str": "2025-12-02 01:39:22",
+        "location": "Oromia Region, Ethiopia"
+    },
+    {
+        "latitude": 7.4260168748185,
+        "longitude": 35.361968512456,
+        "altitude": 416.73603932847,
+        "velocity": 27591.296170152,
+        "timestamp_str": "2025-12-02 01:39:29",
+        "location": "Gambela Region, Ethiopia"
+    },
+    {
+        "latitude": 7.020086609204,
+        "longitude": 35.65443484769,
+        "altitude": 416.7484546448,
+        "velocity": 27591.162338305,
+        "timestamp_str": "2025-12-02 01:39:37",
+        "location": "South West Ethiopia Peoples, Ethiopia"
+    },
+    {
+        "latitude": 6.5631424620842,
+        "longitude": 35.982784315499,
+        "altitude": 416.76481646666,
+        "velocity": 27591.007500762,
+        "timestamp_str": "2025-12-02 01:39:46",
+        "location": "South West Ethiopia Peoples, Ethiopia"
+    }
+]
