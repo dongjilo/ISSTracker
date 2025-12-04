@@ -10,12 +10,12 @@ from iss_fetcher import ISSDataFetcher
 from ui_components import ModernDataCard
 
 class SpaceTrackerApp2025:
-    """Futuristic 2025 ISS Space Tracker with CustomTkinter."""
+    """A Modern ISS Space Tracker made with CustomTkinter."""
 
     def __init__(self, root):
         """Initialize the main application."""
         self.root = root
-        self.root.title("ISS Live Tracker 2025")
+        self.root.title("ISS Live Tracker")
         self.root.resizable(True, True)
         self.root.resizable(False, False)
         self.max_trail_points = 1200
