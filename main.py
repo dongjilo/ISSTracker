@@ -3,11 +3,14 @@ import customtkinter as ctk
 import os
 import json
 import math
+import threading
+import queue
 from datetime import datetime
 from PIL import Image, ImageTk
 from collections import Counter
 from iss_fetcher import ISSDataFetcher
 from ui_components import ModernDataCard
+
 
 class SpaceTrackerApp2025:
     """A Modern ISS Space Tracker made with CustomTkinter."""
@@ -51,10 +54,30 @@ class SpaceTrackerApp2025:
         self.map_photo_day = None
         self.map_photo_night = None
         self.iss_photo = None
+
+        # Threading support
+        self.update_queue = queue.Queue()
+        self.fetch_thread = None
+        self.is_fetching = False
+
+        # Request staggering configuration
+        self.update_interval = 1000  # 5 seconds between full updates
+        self.cached_location = "Tracking"
+        self.last_geo_update_time = 0
+        self.geo_interval = 15
+        self.api_call_delay = 0.5  # 500ms delay between different API calls
+        self.min_request_interval = 1000  # Minimum 1 second between any requests
+        self.last_request_time = 0
+
+        # Canvas optimization
+        self.grid_drawn = False
+        self.trail_segments = []
+
         self._load_assets()
         self._create_widgets()
         self.update_location(is_manual=True)
         self._animate_pulse()
+        self._process_queue()
 
     def _load_assets(self):
         """Load external images safely."""
@@ -264,7 +287,6 @@ class SpaceTrackerApp2025:
         self.tracking_status = self._create_status_row(status_panel, "Tracking", "STANDBY")
         self.trail_status = self._create_status_row(status_panel, "Trail Points", "0")
         self.mode_status = self._create_status_row(status_panel, "Display Mode", "DAY")
-        # ctk.CTkFrame(status_panel, height=12, fg_color="transparent").pack()
 
         ctk.CTkButton(
             right_panel, text="MANUAL UPDATE", command=lambda: self.update_location(is_manual=True),
@@ -323,49 +345,148 @@ class SpaceTrackerApp2025:
                 self.root.after_cancel(self.auto_update_job)
                 self.auto_update_job = None
 
+    def _fetch_data_async(self, is_manual):
+        """
+        Fetches position immediately but staggers location lookups to prevent lag.
+        Runs in a background thread.
+        """
+        if self.is_fetching:
+            return
+
+        # Ensure we import time (add to top of file if missing)
+        import time
+
+        self.is_fetching = True
+
+        try:
+            data = self.data_fetcher.get_iss_position()
+
+            if data:
+                current_time = time.time()
+
+                if is_manual or (current_time - self.last_geo_update_time > self.geo_interval):
+                    try:
+                        # Fetch new address and update cache
+                        new_location = self.data_fetcher.get_location_details(
+                            data['latitude'], data['longitude']
+                        )
+                        self.cached_location = new_location
+                        self.last_geo_update_time = current_time
+                    except Exception as e:
+                        print(f"Geo lookup skipped: {e}")
+
+                # Attach the cached location to the fresh position data
+                data['location'] = self.cached_location
+
+                # Send combined data to UI immediately
+                self.update_queue.put(('data', data))
+
+        except Exception as e:
+            print(f"Error fetching data: {e}")
+            self.update_queue.put(('error', str(e)))
+        finally:
+            self.is_fetching = False
+            # Schedule next update immediately if tracking
+            if not is_manual and self.auto_update_enabled:
+                self.update_queue.put(('schedule', None))
+
+    def _process_queue(self):
+        """Process queued updates from background thread."""
+        try:
+            while True:
+                msg_type, data = self.update_queue.get_nowait()
+
+                if msg_type == 'data':
+                    self._update_ui_with_data(data)
+                elif msg_type == 'schedule':
+                    if self.auto_update_enabled:
+                        # Use configurable update interval
+                        self.auto_update_job = self.root.after(
+                            self.update_interval,
+                            lambda: self.update_location(is_manual=False)
+                        )
+                elif msg_type == 'error':
+                    print(f"Update error: {data}")
+
+        except queue.Empty:
+            pass
+
+        # Keep checking queue
+        self.root.after(100, self._process_queue)
+
+    def _update_ui_with_data(self, data):
+        """Update UI elements with fetched data (runs on main thread)."""
+        self.card_latitude.update_value(f"{data['latitude']:.4f}")
+        self.card_longitude.update_value(f"{data['longitude']:.4f}")
+        self.card_altitude.update_value(f"{data['altitude']:.1f}")
+        velocity_kms = self._calculate_real_velocity(data)
+        data['velocity'] = velocity_kms
+        self.card_velocity.update_value(f"{velocity_kms:.2f}")
+        self.card_location.update_value(data['location'][:25])
+        self.lat_display.configure(text=f"LAT: {data['latitude']:.4f}°")
+        self.lon_display.configure(text=f"LON: {data['longitude']:.4f}°")
+        self.last_update_label.configure(text=f"Updated: {datetime.now().strftime('%H:%M:%S')}")
+
+        self._update_canvas_position(data['latitude'], data['longitude'])
+        self.trail_status.configure(text=str(len(self.iss_trail_coords)))
+
+        # Save log
+        log_data = data.copy()
+        log_data.pop('timestamp_obj', None)
+        self._save_log(log_data)
+        self.last_position = data
+
     def update_location(self, is_manual=False):
-        """Fetch and update ISS position."""
+        """Fetch and update ISS position (non-blocking)."""
         if not is_manual and not self.auto_update_enabled:
             return
 
-        data = self.data_fetcher.get_iss_position()
+        # Start fetch in background thread
+        self.fetch_thread = threading.Thread(
+            target=self._fetch_data_async,
+            args=(is_manual,),
+            daemon=True
+        )
+        self.fetch_thread.start()
 
-        if data:
-            location_str = self.data_fetcher.get_location_details(
-                data['latitude'], data['longitude']
-            )
+    def _calculate_real_velocity(self, new_data):
+        """Calculates velocity based on distance moved over time."""
+        if not self.last_position:
+            return 27600.0  # Fallback to average
 
-            self.card_latitude.update_value(f"{data['latitude']:.4f}")
-            self.card_longitude.update_value(f"{data['longitude']:.4f}")
-            self.card_altitude.update_value(f"{data['altitude']:.1f}")
-            velocity_kms = data['velocity'] / 3600
-            self.card_velocity.update_value(f"{velocity_kms:.2f}")
-            self.card_location.update_value(location_str[:25])
-            self.lat_display.configure(text=f"LAT: {data['latitude']:.4f}°")
-            self.lon_display.configure(text=f"LON: {data['longitude']:.4f}°")
-            self.last_update_label.configure(text=f"Updated: {datetime.now().strftime('%H:%M:%S')}")
-            self._update_canvas_position(data['latitude'], data['longitude'])
-            self.trail_status.configure(text=str(len(self.iss_trail_coords)))
+        try:
+            lat1 = math.radians(self.last_position['latitude'])
+            lon1 = math.radians(self.last_position['longitude'])
+            lat2 = math.radians(new_data['latitude'])
+            lon2 = math.radians(new_data['longitude'])
 
-            data['location'] = location_str
-            data.pop('timestamp_obj', None)
-            self._save_log(data)
-            self.last_position = data
+            R = 6371.0
+            dlon = lon2 - lon1
+            dlat = lat2 - lat1
 
-        if self.auto_update_enabled:
-            self.auto_update_job = self.root.after(
-                5000,
-                lambda: self.update_location(is_manual=False)
-            )
+            a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            distance_km = R * c
 
-    def _update_canvas_position(self, lat, lon):
-        """Update ISS position on canvas with trail, handling map wrapping."""
-        x = (lon + 180) * (self.canvas_width / 360)
-        y = (90 - lat) * (self.canvas_height / 180)
+            t1 = self.last_position['timestamp_obj'].timestamp()
+            t2 = new_data['timestamp_obj'].timestamp()
+            time_diff = t2 - t1
 
-        self.iss_trail_coords.append((x, y))
-        if len(self.iss_trail_coords) > self.max_trail_points:
-            self.iss_trail_coords.pop(0)
+            if time_diff <= 0:
+                return self.last_position.get('velocity', 27600.0)
+
+            velocity_km_s = distance_km / time_diff
+
+            return velocity_km_s * 3600.0
+
+        except Exception as e:
+            print(f"Velocity calc error: {e}")
+            return 27600.0
+
+    def _draw_grid_once(self):
+        """Draw grid lines once and cache them."""
+        if self.grid_drawn:
+            return
 
         self.canvas.delete("grid")
         for i in range(13):
@@ -380,7 +501,21 @@ class SpaceTrackerApp2025:
                 self.canvas_width, (self.canvas_height / 6) * i,
                 fill='#7D5CFF', width=1, stipple='gray25', tags="grid"
             )
+        self.grid_drawn = True
 
+    def _update_canvas_position(self, lat, lon):
+        """Update ISS position on canvas with trail, handling map wrapping."""
+        x = (lon + 180) * (self.canvas_width / 360)
+        y = (90 - lat) * (self.canvas_height / 180)
+
+        self.iss_trail_coords.append((x, y))
+        if len(self.iss_trail_coords) > self.max_trail_points:
+            self.iss_trail_coords.pop(0)
+
+        # Draw grid only once
+        self._draw_grid_once()
+
+        # Only redraw trail, not entire canvas
         self.canvas.delete("trail")
 
         if len(self.iss_trail_coords) > 1:
@@ -426,12 +561,16 @@ class SpaceTrackerApp2025:
         )
 
     def _animate_pulse(self):
-        self.pulse_angle = (self.pulse_angle + 10) % 360
+        """Animate the status indicator pulse."""
         if self.auto_update_enabled:
+            self.pulse_angle = (self.pulse_angle + 10) % 360
             alpha = int(128 + 127 * math.sin(math.radians(self.pulse_angle)))
             color = f"#{alpha:02x}FF{alpha:02x}"
             self.status_indicator.configure(text_color=color)
-        self.root.after(50, self._animate_pulse)
+            self.root.after(50, self._animate_pulse)
+        else:
+            # Only schedule next animation if tracking is active
+            self.root.after(200, self._animate_pulse)
 
     def _toggle_day_night(self):
         if not self.map_photo_night: return
@@ -457,18 +596,22 @@ class SpaceTrackerApp2025:
                 logs = json.load(f)
                 return logs if isinstance(logs, list) else []
         except Exception as e:
-            print(f"Error loading log: {e}"); return []
+            print(f"Error loading log: {e}");
+            return []
 
     def _save_log(self, data_entry):
-        """Append data entry to JSON log file."""
-        logs = self._load_log()
-        logs.append(data_entry)
+        """Append data entry to JSON log file (async to avoid blocking)."""
 
-        try:
-            with open(self.log_file, 'w', encoding='utf-8') as f:
-                json.dump(logs, f, indent=4, ensure_ascii=False)
-        except IOError as e:
-            print(f"Failed to write to log file: {e}")
+        def save_thread():
+            logs = self._load_log()
+            logs.append(data_entry)
+            try:
+                with open(self.log_file, 'w', encoding='utf-8') as f:
+                    json.dump(logs, f, indent=4, ensure_ascii=False)
+            except IOError as e:
+                print(f"Failed to write to log file: {e}")
+
+        threading.Thread(target=save_thread, daemon=True).start()
 
     def show_history(self):
         win = ctk.CTkToplevel(self.root)
@@ -480,9 +623,20 @@ class SpaceTrackerApp2025:
             fg_color=self.colors['bg_card'], border_width=1, border_color=self.colors['border']
         )
         text_widget.pack(fill="both", expand=True, padx=20, pady=20)
-        logs = self._load_log()
-        if logs: text_widget.insert("0.0", json.dumps(logs, indent=4))
-        else: text_widget.insert("0.0", "No tracking history found.")
+
+        # Load logs in background
+        def load_logs():
+            logs = self._load_log()
+            if logs:
+                text = json.dumps(logs, indent=4)
+            else:
+                text = "No tracking history found."
+            self.root.after(0, lambda: self._display_history(text_widget, text))
+
+        threading.Thread(target=load_logs, daemon=True).start()
+
+    def _display_history(self, text_widget, text):
+        text_widget.insert("0.0", text)
         text_widget.configure(state="disabled")
 
     def show_summary(self):
@@ -495,23 +649,30 @@ class SpaceTrackerApp2025:
             fg_color=self.colors['bg_card'], border_width=1, border_color=self.colors['border']
         )
         text_widget.pack(fill="both", expand=True, padx=20, pady=20)
-        logs = self._load_log()
-        if not logs:
-            text_widget.insert("0.0", "No tracking data to summarize.")
-            text_widget.configure(state="disabled")
-            return
-        total_entries = len(logs)
-        locations = [entry.get('location', 'N/A') for entry in logs if entry.get('location')]
-        summary = f"=== ISS TRACKING SUMMARY ===\n\nTotal log entries: {total_entries}\n\n"
-        if locations:
-            unique_locations = set(locations)
-            summary += f"Unique locations: {len(unique_locations)}\n\nMost Frequent Locations:\n" + ("-" * 50) + "\n"
-            location_counts = Counter(locations)
-            for location, count in location_counts.most_common(10):
-                summary += f"{location:<35} | {count:>3} hits\n"
-        else: summary += "No location data found in logs.\n"
-        text_widget.insert("0.0", summary)
-        text_widget.configure(state="disabled")
+
+        # Generate summary in background
+        def generate_summary():
+            logs = self._load_log()
+            if not logs:
+                summary = "No tracking data to summarize."
+            else:
+                total_entries = len(logs)
+                locations = [entry.get('location', 'N/A') for entry in logs if entry.get('location')]
+                summary = f"=== ISS TRACKING SUMMARY ===\n\nTotal log entries: {total_entries}\n\n"
+                if locations:
+                    unique_locations = set(locations)
+                    summary += f"Unique locations: {len(unique_locations)}\n\nMost Frequent Locations:\n" + (
+                                "-" * 50) + "\n"
+                    location_counts = Counter(locations)
+                    for location, count in location_counts.most_common(10):
+                        summary += f"{location:<35} | {count:>3} hits\n"
+                else:
+                    summary += "No location data found in logs.\n"
+
+            self.root.after(0, lambda: self._display_history(text_widget, summary))
+
+        threading.Thread(target=generate_summary, daemon=True).start()
+
 
 if __name__ == "__main__":
     root = ctk.CTk()
