@@ -166,5 +166,13 @@
         "velocity": 27591.007500762,
         "timestamp_str": "2025-12-02 01:39:46",
         "location": "South West Ethiopia Peoples, Ethiopia"
+    },
+    {
+        "latitude": -41.105716132626,
+        "longitude": -102.23006624956,
+        "altitude": 432.64311359146,
+        "velocity": 27545.964936388,
+        "timestamp_str": "2025-12-04 19:14:58",
+        "location": "Over Ocean"
     }
 ]
